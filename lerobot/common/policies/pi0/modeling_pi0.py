@@ -269,7 +269,10 @@ class PI0Policy(PreTrainedPolicy):
         queue is empty.
         """
         self.eval()
-
+        #print all keys shape in the batch
+        for key in batch.keys():
+            print("key:", key)
+            print(batch[key].shape)
         if self.config.adapt_to_pi_aloha:
             batch[OBS_ROBOT] = self._pi_aloha_decode_state(batch[OBS_ROBOT])
 
@@ -279,8 +282,21 @@ class PI0Policy(PreTrainedPolicy):
         # querying the policy.
         if len(self._action_queue) == 0:
             images, img_masks = self.prepare_images(batch)
+            print("Images:")
+            for i, img in enumerate(images):
+                print(f"Image {i} shape: {img.shape}")
+
+            print("Image masks:")
+            for i, mask in enumerate(img_masks):
+                print(f"Mask {i} shape: {mask.shape}")
             state = self.prepare_state(batch)
+            print("state:")
+            for i, state in enumerate(state):
+                print(f"state {i} shape: {state.shape}")
             lang_tokens, lang_masks = self.prepare_language(batch)
+            print("lang_tokens:")
+            for i, lang in enumerate(lang_tokens):
+                print(f"lang {i} shape: {lang.shape}")
 
             actions = self.model.sample_actions(
                 images, img_masks, lang_tokens, lang_masks, state, noise=noise
@@ -381,8 +397,8 @@ class PI0Policy(PreTrainedPolicy):
     def prepare_language(self, batch) -> tuple[Tensor, Tensor]:
         """Tokenize the text input"""
         device = batch[OBS_ROBOT].device
-        tasks = batch["task"]
-
+        # tasks = batch["task"]
+        tasks = "aloha left arm pick up the cube and transfer to the right arm"
         # PaliGemma prompt has to end with a new line
         tasks = [task if task.endswith("\n") else f"{task}\n" for task in tasks]
 
@@ -519,16 +535,20 @@ class PI0FlowMatching(nn.Module):
             img,
             img_mask,
         ) in zip(images, img_masks, strict=False):
+            print("img shape:", img.shape)
+            print("img_mask shape:", img_mask.shape)
             img_emb = self.paligemma_with_expert.embed_image(img)
+            print("img_emb shape:", img_emb.shape)
             img_emb = img_emb.to(dtype=torch.bfloat16)
 
             # Normalize image embeddings
             img_emb_dim = img_emb.shape[-1]
+            print("img_emb_dim:", img_emb_dim)
             img_emb = img_emb * torch.tensor(img_emb_dim**0.5, dtype=img_emb.dtype, device=img_emb.device)
 
             bsize, num_img_embs = img_emb.shape[:2]
             img_mask = img_mask[:, None].expand(bsize, num_img_embs)
-
+            print("img_mask shape:", img_mask.shape)
             embs.append(img_emb)
             pad_masks.append(img_mask)
 
@@ -536,9 +556,11 @@ class PI0FlowMatching(nn.Module):
             att_masks += [0] * num_img_embs
 
         lang_emb = self.paligemma_with_expert.embed_language_tokens(lang_tokens)
+        print("lang_emb shape:", lang_emb.shape)
 
         # Normalize language embeddings
         lang_emb_dim = lang_emb.shape[-1]
+        print("lang_emb_dim:", lang_emb_dim)
         lang_emb = lang_emb * math.sqrt(lang_emb_dim)
 
         embs.append(lang_emb)
@@ -546,7 +568,12 @@ class PI0FlowMatching(nn.Module):
 
         # full attention between image and language inputs
         num_lang_embs = lang_emb.shape[1]
+        print("num_lang_embs:", num_lang_embs)
         att_masks += [0] * num_lang_embs
+
+        for i, emb in enumerate(embs):
+            print(f"emb[{i}] shape: {emb.shape}, dtype: {emb.dtype}, device: {emb.device}")
+
 
         embs = torch.cat(embs, dim=1)
         pad_masks = torch.cat(pad_masks, dim=1)
@@ -657,6 +684,19 @@ class PI0FlowMatching(nn.Module):
         if noise is None:
             actions_shape = (bsize, self.config.n_action_steps, self.config.max_action_dim)
             noise = self.sample_noise(actions_shape, device)
+        
+        print("noise shape:", noise.shape)
+        print("state shape:", state.shape)
+        print("Images:")
+        for i, img in enumerate(images):
+            print(f"Image {i} shape: {img.shape}")
+        print("Image masks:")
+        for i, mask in enumerate(img_masks):
+            print(f"Mask {i} shape: {mask.shape}")
+
+        print("lang_tokens shape:", lang_tokens.shape)
+        print("lang_masks shape:", lang_masks.shape)
+
 
         prefix_embs, prefix_pad_masks, prefix_att_masks = self.embed_prefix(
             images, img_masks, lang_tokens, lang_masks
