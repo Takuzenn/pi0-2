@@ -283,20 +283,20 @@ class PI0Policy(PreTrainedPolicy):
         if len(self._action_queue) == 0:
             images, img_masks = self.prepare_images(batch)
             print("Images:")
-            for i, img in enumerate(images):
-                print(f"Image {i} shape: {img.shape}")
+            for i, ig in enumerate(images):
+                print(f"Image {i} shape: {ig.shape}")
 
             print("Image masks:")
-            for i, mask in enumerate(img_masks):
-                print(f"Mask {i} shape: {mask.shape}")
+            for i, m in enumerate(img_masks):
+                print(f"Mask {i} shape: {m.shape}")
             state = self.prepare_state(batch)
             print("state:")
-            for i, state in enumerate(state):
-                print(f"state {i} shape: {state.shape}")
+            for i, s in enumerate(state):
+                print(f"state {i} shape: {s.shape}")
             lang_tokens, lang_masks = self.prepare_language(batch)
             print("lang_tokens:")
-            for i, lang in enumerate(lang_tokens):
-                print(f"lang {i} shape: {lang.shape}")
+            for i, l in enumerate(lang_tokens):
+                print(f"lang {i} shape: {l.shape}")
 
             actions = self.model.sample_actions(
                 images, img_masks, lang_tokens, lang_masks, state, noise=noise
@@ -397,8 +397,17 @@ class PI0Policy(PreTrainedPolicy):
     def prepare_language(self, batch) -> tuple[Tensor, Tensor]:
         """Tokenize the text input"""
         device = batch[OBS_ROBOT].device
-        # tasks = batch["task"]
-        tasks = "aloha left arm pick up the cube and transfer to the right arm"
+        if "task" in batch:
+            tasks = batch["task"]
+        else:
+            default_task = "aloha right arm pick up the cube and transfer to the left arm"
+            # 确保任务文本以换行符结尾
+            if not default_task.endswith("\n"):
+                default_task = f"{default_task}\n"
+            batch_size = batch[OBS_ROBOT].shape[0]
+            tasks = [default_task] * batch_size
+        
+        # tasks = "aloha left arm pick up the cube and transfer to the right arm"
         # PaliGemma prompt has to end with a new line
         tasks = [task if task.endswith("\n") else f"{task}\n" for task in tasks]
 
@@ -410,7 +419,9 @@ class PI0Policy(PreTrainedPolicy):
             return_tensors="pt",
         )
         lang_tokens = tokenized_prompt["input_ids"].to(device=device)
+        print(f'token ids shape: {lang_tokens.shape}')
         lang_masks = tokenized_prompt["attention_mask"].to(device=device, dtype=torch.bool)
+        print(f'attention mask shape: {lang_masks.shape}')
 
         return lang_tokens, lang_masks
 
@@ -555,6 +566,7 @@ class PI0FlowMatching(nn.Module):
             # Create attention masks so that image tokens attend to each other
             att_masks += [0] * num_img_embs
 
+        print(f"lang_tokens shape is {lang_tokens.shape}")
         lang_emb = self.paligemma_with_expert.embed_language_tokens(lang_tokens)
         print("lang_emb shape:", lang_emb.shape)
 
@@ -591,6 +603,7 @@ class PI0FlowMatching(nn.Module):
         # Embed state
         state_emb = self.state_proj(state)
         state_emb = state_emb.to(dtype=torch.bfloat16)
+        print(f'state_emb shape: {state_emb.shape}')
         embs.append(state_emb[:, None, :])
         bsize = state_emb.shape[0]
         dtype = state_emb.dtype

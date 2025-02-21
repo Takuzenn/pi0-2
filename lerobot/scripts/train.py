@@ -206,9 +206,12 @@ def train(cfg: TrainPipelineConfig):
         batch = next(dl_iter)
         train_tracker.dataloading_s = time.perf_counter() - start_time
 
-        for key in batch:
-            if isinstance(batch[key], torch.Tensor):
-                batch[key] = batch[key].to(device, non_blocking=True)
+        for key, value in batch.items():
+            if isinstance(value, torch.Tensor):
+                value = value.to(device, non_blocking=True)
+                print(f"key: {key}, tensor shape: {value.shape}")
+            else:
+                print(f"key: {key}, value: {value}")
 
         train_tracker, output_dict = update_policy(
             train_tracker,
